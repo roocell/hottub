@@ -1,0 +1,30 @@
+version: "3.9"
+services:
+  web:
+    build:
+      context: ./web
+    environment:
+      - NEXT_PUBLIC_ENGINE_BASE_URL=http://engine:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - engine
+  engine:
+    build:
+      context: ./engine
+    environment:
+      - INTOUCH2_HOST=192.168.50.167
+      - INTOUCH2_MAC=68:27:19:be:a7:a2
+      - MAX_SETPOINT_F=104
+      - COMMAND_RATE_LIMIT_MS=1000
+      - STATE_POLL_INTERVAL_MS=1500
+      - STATE_LOG_INTERVAL_S=60
+      - LOG_DIR=/data/logs
+      - AUTOMATIONS_FILE=/data/automations.json
+    volumes:
+      - engine_data:/data
+    ports:
+      - "8000:8000"
+
+volumes:
+  engine_data:
