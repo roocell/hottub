@@ -11,4 +11,9 @@ $pipExe = Join-Path (Join-Path $venvPath "Scripts") "pip.exe"
 & $pythonExe -m pip install --upgrade pip
 & $pipExe install -r $reqPath
 
+$localGeckolibPath = Join-Path $repoRoot "geckolib"
+if (Test-Path $localGeckolibPath) {
+  & $pipExe install -e $localGeckolibPath
+}
+
 Write-Host "Venv ready at $venvPath"

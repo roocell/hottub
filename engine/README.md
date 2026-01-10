@@ -11,5 +11,5 @@ From repo root:
   scripts\\setup-venv.ps1
   scripts\\run-engine.ps1
 
-
+# Run locally with debug
 .\engine\.venv\Scripts\python.exe -m uvicorn spa_engine.api:app --app-dir engine --host 0.0.0.0 --port 8000 --reload

@@ -75,8 +75,8 @@ class EngineSpaManager(GeckoAsyncSpaMan):
             GeckoSpaEvent.CONNECTION_CANNOT_FIND_CONFIG_VERSION,
             GeckoSpaEvent.CONNECTION_CANNOT_FIND_LOG_VERSION,
             GeckoSpaEvent.CONNECTION_CANNOT_FIND_SPA_PACK,
-            GeckoSpaEvent.CONNECTION_PROTOCOL_RETRY_COUNT_EXCEEDED,
-            GeckoSpaEvent.ERROR_PROTOCOL_RETRY_COUNT_EXCEEDED,
+            GeckoSpaEvent.CONNECTION_PROTOCOL_RETRY_TIME_EXCEEDED,
+            GeckoSpaEvent.ERROR_PROTOCOL_RETRY_TIME_EXCEEDED,
             GeckoSpaEvent.ERROR_RF_ERROR,
             GeckoSpaEvent.ERROR_TOO_MANY_RF_ERRORS,
         ):
@@ -253,10 +253,13 @@ class SpaClient:
             heater_on = bool(heating_accessor.value)
 
         pumps = []
-        for pump in facade.pumps:
+        for idx, pump in enumerate(facade.pumps, start=1):
+            pump_id = getattr(pump, "ui_key", None)
+            if pump_id is None:
+                pump_id = getattr(pump, "name", None) or f"pump-{idx}"
             pumps.append(
                 {
-                    "id": pump.ui_key,
+                    "id": pump_id,
                     "label": pump.name,
                     "state": "on" if pump.is_on else "off",
                     "speed": pump.mode,
