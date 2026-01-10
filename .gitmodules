@@ -1,0 +1,3 @@
+[submodule "geckolib"]
+	path = geckolib
+	url = https://github.com/roocell/geckolib.git
