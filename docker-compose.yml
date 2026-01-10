@@ -24,8 +24,7 @@ services:
       - AUTOMATIONS_FILE=/data/automations.json
     volumes:
       - engine_data:/data
-    ports:
-      - "8000:8000"
+    # Internal-only service; no host port binding needed.
 
 volumes:
   engine_data:
