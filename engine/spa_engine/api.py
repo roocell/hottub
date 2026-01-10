@@ -4,8 +4,9 @@ import time
 from pathlib import Path
 from typing import Dict, Generator
 
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from dotenv import load_dotenv
 
 from .config import get_config
@@ -20,22 +21,41 @@ app = FastAPI(title="Spa Engine", version=__version__)
 
 config = get_config()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 events_logger = setup_json_logger("events", config["log_dir"], "events.log")
 
 spa_client = SpaClient(config)
 app_start = time.time()
+LOG_TAIL_BYTES = 1024
 
-def _enable_geckolib_debug() -> None:
+def _configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s> %(levelname)s %(name)s %(message)s",
     )
-    logging.getLogger("geckolib").setLevel(logging.DEBUG)
+    logging.getLogger("geckolib").setLevel(logging.WARNING)
+
+
+def _read_tail_bytes(path: Path, size: int) -> bytes:
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        end = handle.tell()
+        if end > size:
+            handle.seek(end - size)
+        else:
+            handle.seek(0)
+        return handle.read()
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    _enable_geckolib_debug()
+    _configure_logging()
     await spa_client.start()
 
 
@@ -61,12 +81,9 @@ def spa_state() -> Dict[str, object]:
 
 
 @app.post("/spa/command")
-def spa_command(payload: Dict[str, object]) -> Dict[str, object]:
-    if not spa_client.is_connected():
-        return {"ok": False, "error": "Spa is not connected"}
-
+async def spa_command(payload: Dict[str, object]) -> Dict[str, object]:
     events_logger.info("command_received")
-    return {"ok": False, "error": "Commands not implemented yet"}
+    return await spa_client.command(payload)
 
 
 @app.get("/events")
@@ -78,3 +95,20 @@ def events() -> StreamingResponse:
             time.sleep(2)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get("/logs")
+def logs(log_type: str = "events") -> PlainTextResponse:
+    filenames = {
+        "events": "events.log",
+        "state": "state.log",
+    }
+    if log_type not in filenames:
+        raise HTTPException(status_code=400, detail="Unknown log type")
+
+    log_path = Path(config["log_dir"]) / filenames[log_type]
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    data = _read_tail_bytes(log_path, LOG_TAIL_BYTES)
+    return PlainTextResponse(content=data, media_type="text/plain; charset=utf-8")

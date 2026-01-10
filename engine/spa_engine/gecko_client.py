@@ -45,6 +45,14 @@ def _to_fahrenheit(value: Optional[float], temp_units: Optional[str]) -> Optiona
     return float(value)
 
 
+def _to_native_temp(value_f: float, temp_units: Optional[str]) -> float:
+    if temp_units is None:
+        return float(value_f)
+    if str(temp_units).upper().startswith("C"):
+        return (float(value_f) - 32.0) * 5.0 / 9.0
+    return float(value_f)
+
+
 def _accessor_value(accessors: dict, keys: list[str]) -> Optional[float]:
     for key in keys:
         accessor = accessors.get(key)
@@ -96,14 +104,21 @@ class SpaClient:
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._manager: Optional[EngineSpaManager] = None
+        self._command_lock = asyncio.Lock()
 
         self._state: Dict[str, object] = {
-            "temps": {"current_f": None, "setpoint_f": None},
+            "temps": {"current_f": None, "setpoint_f": None, "units": "F"},
             "heater": {"on": False},
             "pumps": [],
-            "lights": {"on": False},
+            "lights": {"on": False, "color_rgb": None, "inmix": None},
             "errors": [],
-            "capabilities": {"canSetTemp": False, "pumpsCount": 0, "hasLights": False},
+            "capabilities": {
+                "canSetTemp": False,
+                "pumpsCount": 0,
+                "hasLights": False,
+                "hasInMix": False,
+                "maxSetpointF": self._config.get("max_setpoint_f", 104),
+            },
             "meta": {
                 "lastUpdated": time.time(),
                 "connectionState": "DISCONNECTED",
@@ -121,6 +136,95 @@ class SpaClient:
         with self._lock:
             meta = self._state.get("meta", {})
             return meta.get("connectionState") == "CONNECTED"
+
+    async def command(self, payload: Dict[str, object]) -> Dict[str, object]:
+        async with self._command_lock:
+            manager = self._manager
+            if manager is None or manager.facade is None:
+                return {"ok": False, "error": "Spa is not connected"}
+
+            command_type = payload.get("type")
+            command_payload = payload.get("payload", {}) or {}
+            facade = manager.facade
+
+            if command_type == "light.toggle":
+                if not facade.lights:
+                    return {"ok": False, "error": "No lights available"}
+                light = facade.lights[0]
+                target_on = command_payload.get("on")
+                if target_on is None:
+                    target_on = not light.is_on
+                if target_on:
+                    await light.async_turn_on()
+                else:
+                    await light.async_turn_off()
+                self._update_state_from_facade(facade, manager)
+                return {"ok": True}
+
+            if command_type == "pump.cycle":
+                pumps = list(facade.pumps)
+                if not pumps:
+                    return {"ok": False, "error": "No pumps available"}
+                pump_id = command_payload.get("id")
+                pump = None
+                if pump_id is not None:
+                    for candidate in pumps:
+                        if candidate.key == pump_id or candidate.name == pump_id:
+                            pump = candidate
+                            break
+                if pump is None:
+                    pump = pumps[0]
+
+                if getattr(pump, "is_variable_speed", False):
+                    if pump.is_on:
+                        await pump.async_turn_off()
+                    else:
+                        await pump.async_turn_on()
+                else:
+                    modes = pump.modes or []
+                    current_mode = pump.mode
+                    if modes:
+                        if current_mode in modes:
+                            next_index = (modes.index(current_mode) + 1) % len(modes)
+                        else:
+                            next_index = 0
+                        next_mode = modes[next_index]
+                        if str(next_mode).upper() == "OFF":
+                            await pump.async_turn_off()
+                        else:
+                            await pump.async_set_mode(next_mode)
+                    else:
+                        if pump.is_on:
+                            await pump.async_turn_off()
+                        else:
+                            await pump.async_turn_on()
+                self._update_state_from_facade(facade, manager)
+                return {"ok": True}
+
+            if command_type == "temp.set":
+                if facade.water_heater is None or not facade.water_heater.is_available:
+                    return {"ok": False, "error": "Temperature control unavailable"}
+                setpoint_f = command_payload.get("setpoint_f")
+                if setpoint_f is None:
+                    return {"ok": False, "error": "Missing setpoint_f"}
+                try:
+                    setpoint_f_value = float(setpoint_f)
+                except (TypeError, ValueError):
+                    return {"ok": False, "error": "Invalid setpoint_f"}
+                max_setpoint_f = self._config.get("max_setpoint_f", 104)
+                if setpoint_f_value > max_setpoint_f:
+                    setpoint_f_value = float(max_setpoint_f)
+
+                accessors = facade.spa.accessors
+                temp_units = None
+                if GeckoConstants.KEY_TEMP_UNITS in accessors:
+                    temp_units = accessors[GeckoConstants.KEY_TEMP_UNITS].value
+                native_value = _to_native_temp(setpoint_f_value, temp_units)
+                await facade.water_heater.async_set_target_temperature(native_value)
+                self._update_state_from_facade(facade, manager)
+                return {"ok": True}
+
+            return {"ok": False, "error": "Unknown command"}
 
     async def start(self) -> None:
         if self._task is None:
@@ -254,7 +358,7 @@ class SpaClient:
 
         pumps = []
         for idx, pump in enumerate(facade.pumps, start=1):
-            pump_id = getattr(pump, "ui_key", None)
+            pump_id = getattr(pump, "key", None)
             if pump_id is None:
                 pump_id = getattr(pump, "name", None) or f"pump-{idx}"
             pumps.append(
@@ -262,13 +366,34 @@ class SpaClient:
                     "id": pump_id,
                     "label": pump.name,
                     "state": "on" if pump.is_on else "off",
-                    "speed": pump.mode,
+                    "speed": str(pump.mode) if pump.mode is not None else None,
                 }
             )
 
-        lights = {"on": False}
+        lights: Dict[str, object] = {"on": False, "color_rgb": None, "inmix": None}
         if facade.lights:
             lights["on"] = any(light.is_on for light in facade.lights)
+
+        inmix = facade.inmix
+        inmix_info: Dict[str, object] = {"available": False, "zones": []}
+        if inmix is not None and inmix.is_available:
+            inmix_info["available"] = True
+            zones = []
+            for zone in inmix.zones:
+                rgb = zone.rgb_color
+                zones.append(
+                    {
+                        "key": zone.key,
+                        "name": zone.name,
+                        "on": zone.is_on,
+                        "rgb": list(rgb) if rgb else None,
+                        "brightness": zone.brightness,
+                    }
+                )
+            inmix_info["zones"] = zones
+            lights["inmix"] = inmix_info
+            if zones and zones[0].get("rgb") is not None:
+                lights["color_rgb"] = zones[0].get("rgb")
 
         errors = []
         error_state = facade.error_sensor.state if facade.error_sensor else "None"
@@ -288,6 +413,7 @@ class SpaClient:
                 "temps": {
                     "current_f": _to_fahrenheit(current_temp, temp_units),
                     "setpoint_f": _to_fahrenheit(setpoint, temp_units),
+                    "units": str(temp_units) if temp_units is not None else "F",
                 },
                 "heater": {"on": heater_on},
                 "pumps": pumps,
@@ -297,6 +423,7 @@ class SpaClient:
                     "canSetTemp": setpoint is not None,
                     "pumpsCount": len(pumps),
                     "hasLights": len(facade.lights) > 0,
+                    "hasInMix": inmix is not None and inmix.is_available,
                 },
                 "meta": {
                     "lastUpdated": now,

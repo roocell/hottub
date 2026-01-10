@@ -1,7 +1,33 @@
 import json
 import logging
-from logging.handlers import TimedRotatingFileHandler
+from logging import FileHandler, LogRecord
 from pathlib import Path
+from typing import Callable
+LOG_MAX_BYTES = 100 * 1024
+
+
+class BoundedFileHandler(FileHandler):
+    def __init__(self, filename: str | Path, max_bytes: int) -> None:
+        super().__init__(filename, encoding="utf-8")
+        self._max_bytes = max_bytes
+        self._path = Path(filename)
+
+    def emit(self, record: LogRecord) -> None:
+        super().emit(record)
+        self._truncate_if_needed()
+
+    def _truncate_if_needed(self) -> None:
+        try:
+            size = self._path.stat().st_size
+        except FileNotFoundError:
+            return
+        if size <= self._max_bytes:
+            return
+        with self._path.open("rb") as source:
+            source.seek(-self._max_bytes, 2)
+            data = source.read(self._max_bytes)
+        with self._path.open("wb") as target:
+            target.write(data)
 
 
 def setup_json_logger(name: str, log_dir: str, filename: str) -> logging.Logger:
@@ -9,11 +35,9 @@ def setup_json_logger(name: str, log_dir: str, filename: str) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
-    handler = TimedRotatingFileHandler(
-        Path(log_dir) / filename, when="D", interval=1, backupCount=14, encoding="utf-8"
-    )
+    handler = BoundedFileHandler(Path(log_dir) / filename, LOG_MAX_BYTES)
 
-    def format_record(record: logging.LogRecord) -> str:
+    def format_record(record: LogRecord) -> str:
         payload = {
             "ts": record.created,
             "level": record.levelname,

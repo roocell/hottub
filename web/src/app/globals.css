@@ -27,4 +27,86 @@
 
 body {
   @apply bg-background text-foreground;
+  font-family: var(--font-body), "Segoe UI", "Segoe UI Emoji", sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-display), "Times New Roman", serif;
+}
+
+.fade-up {
+  animation: fade-up 700ms ease both;
+}
+
+.fade-in {
+  animation: fade-in 600ms ease both;
+}
+
+.float-slow {
+  animation: float-slow 18s ease-in-out infinite;
+}
+
+.float-fast {
+  animation: float-fast 12s ease-in-out infinite;
+}
+
+.spin-reverse {
+  animation: spin-reverse 1.4s linear infinite;
+}
+
+.spin-reverse-slow {
+  animation: spin-reverse 3.2s linear infinite;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes float-slow {
+  0% {
+    transform: translateY(0px) translateX(0px);
+  }
+  50% {
+    transform: translateY(-12px) translateX(8px);
+  }
+  100% {
+    transform: translateY(0px) translateX(0px);
+  }
+}
+
+@keyframes float-fast {
+  0% {
+    transform: translateY(0px) translateX(0px);
+  }
+  50% {
+    transform: translateY(-18px) translateX(-10px);
+  }
+  100% {
+    transform: translateY(0px) translateX(0px);
+  }
+}
+
+@keyframes spin-reverse {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
 }
