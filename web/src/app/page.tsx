@@ -28,6 +28,7 @@ type SpaState = {
     pumpsCount?: number;
     hasLights?: boolean;
     hasInMix?: boolean;
+    maxSetpointF?: number;
   };
   meta?: {
     lastUpdated?: number;
@@ -123,6 +124,7 @@ export default function HomePage() {
 
   const connectionState = state?.meta?.connectionState ?? "DISCONNECTED";
   const currentTemp = state?.temps?.current_f ?? null;
+  const currentSetpoint = state?.temps?.setpoint_f ?? null;
   const tempColor = heatColor(currentTemp);
   const setpointColor = heatColor(setpointDraft ?? currentSetpoint);
   const statusTone = useMemo(() => {
@@ -152,7 +154,6 @@ export default function HomePage() {
   const inmixAvailable = Boolean(state?.capabilities?.hasInMix);
   const inmixZones = state?.lights?.inmix?.zones ?? [];
   const maxSetpointF = state?.capabilities?.maxSetpointF ?? 104;
-  const currentSetpoint = state?.temps?.setpoint_f ?? null;
 
   useEffect(() => {
     if (setpointDragging || setpointPending) return;
