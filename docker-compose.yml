@@ -7,6 +7,7 @@ services:
       - NEXT_PUBLIC_ENGINE_BASE_URL=http://engine:8000
     ports:
       - "3000:3000"
+      - "6002:3000"
     depends_on:
       - engine
   engine:
