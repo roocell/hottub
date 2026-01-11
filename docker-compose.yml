@@ -19,10 +19,10 @@ services:
       - STATE_LOG_INTERVAL_S=60
       - LOG_DIR=/data/logs
       - AUTOMATIONS_FILE=/data/automations.json
+      - PORT=6020
     volumes:
       - engine_data:/data
     network_mode: host
     ports:
-      - "6020:8000"
 volumes:
   engine_data:
