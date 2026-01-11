@@ -5,7 +5,7 @@ services:
       context: ./web
     ports:
       - "3000:3000"
-      - "6001:8000"
+      - "6020:8000"
     depends_on:
       - engine
   engine:
