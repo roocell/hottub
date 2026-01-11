@@ -5,7 +5,6 @@ services:
       context: ./web
     ports:
       - "3000:3000"
-      - "6020:8000"
     depends_on:
       - engine
   engine:
@@ -22,6 +21,8 @@ services:
       - AUTOMATIONS_FILE=/data/automations.json
     volumes:
       - engine_data:/data
-
+    network_mode: host
+    ports:
+      - "6020:8000"
 volumes:
   engine_data:
