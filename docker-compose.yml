@@ -9,7 +9,8 @@ services:
       - engine
   engine:
     build:
-      context: ./engine
+      context: .
+      dockerfile: engine/Dockerfile
     environment:
       - INTOUCH2_HOST=192.168.50.167
       - INTOUCH2_MAC=68:27:19:be:a7:a2
