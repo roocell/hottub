@@ -3,10 +3,9 @@ services:
   web:
     build:
       context: ./web
-    environment:
-      - NEXT_PUBLIC_ENGINE_BASE_URL=http://engine:8000
     ports:
       - "3000:3000"
+      - "6001:8000"
     depends_on:
       - engine
   engine:
@@ -23,8 +22,6 @@ services:
       - AUTOMATIONS_FILE=/data/automations.json
     volumes:
       - engine_data:/data
-    ports:
-      - "8000:8000"
 
 volumes:
   engine_data:
