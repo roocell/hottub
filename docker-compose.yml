@@ -23,6 +23,5 @@ services:
     volumes:
       - engine_data:/data
     network_mode: host
-    ports:
 volumes:
   engine_data:
