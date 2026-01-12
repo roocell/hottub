@@ -1,3 +1,4 @@
 fastapi
 uvicorn[standard]
 python-dotenv
+geckolib @ git+https://github.com/roocell/geckolib.git@main
