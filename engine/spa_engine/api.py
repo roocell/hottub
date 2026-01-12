@@ -81,6 +81,7 @@ def health() -> Dict[str, object]:
 
 @app.get("/spa/state")
 def spa_state() -> Dict[str, object]:
+    spa_client.note_state_request()
     return spa_client.get_state()
 
 

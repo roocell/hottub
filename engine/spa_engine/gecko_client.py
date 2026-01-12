@@ -105,6 +105,9 @@ class SpaClient:
         self._task: Optional[asyncio.Task] = None
         self._manager: Optional[EngineSpaManager] = None
         self._command_lock = asyncio.Lock()
+        self._state_request_event = asyncio.Event()
+        self._last_state_request = 0.0
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         self._state: Dict[str, object] = {
             "temps": {"current_f": None, "setpoint_f": None, "units": "F"},
@@ -131,6 +134,31 @@ class SpaClient:
     def get_state(self) -> Dict[str, object]:
         with self._lock:
             return copy.deepcopy(self._state)
+
+    def note_state_request(self) -> None:
+        with self._lock:
+            self._last_state_request = time.time()
+        loop = self._loop
+        if loop is not None:
+            loop.call_soon_threadsafe(self._state_request_event.set)
+        else:
+            self._state_request_event.set()
+
+    def _recent_state_request(self, timeout_s: float) -> bool:
+        with self._lock:
+            last_request = self._last_state_request
+        if last_request <= 0:
+            return False
+        return (time.time() - last_request) <= timeout_s
+
+    async def _wait_for_state_request(self, timeout_s: float) -> bool:
+        try:
+            await asyncio.wait_for(self._state_request_event.wait(), timeout=timeout_s)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            self._state_request_event.clear()
 
     def is_connected(self) -> bool:
         with self._lock:
@@ -229,6 +257,7 @@ class SpaClient:
     async def start(self) -> None:
         if self._task is None:
             self._stop_event.clear()
+            self._loop = asyncio.get_running_loop()
             self._task = asyncio.create_task(self._run(), name="spa-client")
 
     async def stop(self) -> None:
@@ -252,10 +281,16 @@ class SpaClient:
                 self._config = get_config()
                 host = self._config.get("intouch2_host", "")
                 poll_interval = self._config.get("state_poll_interval_ms", 1500) / 1000.0
+                ui_idle_timeout = self._config.get("ui_idle_timeout_s", 10)
                 if not host:
                     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [spa] INTOUCH2_HOST not set")
                     self._set_error_state("INTOUCH2_HOST not set")
                     await asyncio.sleep(backoff_s)
+                    continue
+
+                if not self._recent_state_request(ui_idle_timeout):
+                    self._set_connection_state("DISCONNECTED")
+                    await self._wait_for_state_request(ui_idle_timeout)
                     continue
 
                 try:
@@ -295,13 +330,22 @@ class SpaClient:
                         await facade.wait_for_one_update()
                         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [spa] state updates running")
 
+                        idle_disconnect = False
                         while (
                             not self._stop_event.is_set()
                             and manager.facade is not None
                             and manager.spa_state == GeckoSpaState.CONNECTED
                         ):
                             self._update_state_from_facade(facade, manager)
+                            if not self._recent_state_request(ui_idle_timeout):
+                                idle_disconnect = True
+                                break
                             await asyncio.sleep(poll_interval)
+
+                        if idle_disconnect and not self._stop_event.is_set():
+                            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [spa] idle: disconnecting until /spa/state requested")
+                            self._set_connection_state("DISCONNECTED")
+                            continue
 
                 except Exception as exc:
                     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [spa] exception: {exc}")

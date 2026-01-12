@@ -20,3 +20,8 @@ From another terminal:
   curl http://localhost:8000/health
   curl http://localhost:8000/spa/state
   curl http://localhost:8000/events
+
+## Idle mode
+The engine starts idle and only connects to the spa after a `/spa/state` request.
+If no `/spa/state` request is seen for `UI_IDLE_TIMEOUT_S` seconds (default 10),
+it disconnects and returns to idle.
